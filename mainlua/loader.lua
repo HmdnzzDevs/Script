@@ -1,51 +1,40 @@
--- ====================================================================
--- FILE: loader.lua (Tersimpan di GitHub)
--- FUNGSI: Menyatukan chunk, memverifikasi anti-tamper, dan mengeksekusi
--- ====================================================================
+-- Nama File: loader.lua (Taruh ini di GitHub)
+-- Script ini akan didownload dan dieksekusi oleh script lokal pengguna
 
--- Mengembalikan fungsi agar bisa langsung dijalankan oleh script client
-return function(chunk_data, expected_checksum, start_key)
-    local bit = require("bit")
-    
-    -- 1. Menggabungkan semua chunk menjadi satu string panjang
-    local reassembled_data = table.concat(chunk_data)
-    
-    local original_bytecode = ""
-    local calc_checksum = 0
-    local current_key = start_key
-    
-    -- 2. Proses Dekripsi & Pengecekan Checksum
-    -- Mengambil setiap angka di balik format "\angka"
-    for val in string.gmatch(reassembled_data, "\\(%d+)") do
-        local encrypted_byte = tonumber(val)
-        
-        -- Membuka kunci (Dekripsi XOR)
-        local decrypted_byte = bit.bxor(encrypted_byte, current_key)
-        
-        -- Menghitung ulang checksum
-        calc_checksum = (calc_checksum + decrypted_byte) % 256
-        
-        -- Menyimpan byte asli
-        original_bytecode = original_bytecode .. string.char(decrypted_byte)
-        
-        -- Memutar kunci (Rolling Key) agar terus berubah setiap byte
-        current_key = (current_key + 17) % 256
+return function(encrypted_data)
+    if not encrypted_data or #encrypted_data == 0 then
+        return
     end
-    
-    -- 3. Verifikasi Anti-Tamper
-    if calc_checksum ~= expected_checksum then
-        print("[Sistem] Keamanan Terpicu: Data telah dimodifikasi!")
-        return -- Berhenti eksekusi jika file dirusak
+
+    local restored_bytecode = ""
+    local key = 0x5A -- Kunci awal harus sama dengan alat enkripsi
+
+    -- Proses Dekripsi: Membalikkan Lapis 1 dan Lapis 2
+    for i = 1, #encrypted_data do
+        local b2 = string.byte(encrypted_data, i)
+        
+        -- Membalikkan Lapis 2: Kunci Berputar
+        local step1 = (b2 - key) % 256
+        
+        -- Membalikkan Lapis 1: Inversi
+        local original_byte = 255 - step1 
+
+        restored_bytecode = restored_bytecode .. string.char(original_byte)
+        
+        -- Putar kunci untuk byte berikutnya
+        key = (key + 17) % 256
     end
+
+    -- Menjalankan bytecode yang sudah dipulihkan
+    local jalankan_fungsi, err = load(restored_bytecode)
     
-    -- 4. Eksekusi Script Langsung di Memori
-    local run_func, err = load(original_bytecode, "=(secure_payload)")
-    if type(run_func) == "function" then
-        local success, run_err = pcall(run_func)
-        if not success then
-            print("[Sistem] Error Eksekusi: " .. tostring(run_err))
+    if jalankan_fungsi then
+        jalankan_fungsi() 
+        if type(main) == "function" then
+            -- Memastikan fungsi main() dipanggil jika ada
+            lua_thread.create(main)
         end
     else
-        print("[Sistem] Gagal memuat struktur bytecode.")
+        print("Gagal memuat kode dari memori.")
     end
 end
